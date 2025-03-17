@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookingprocessor
+spec:
+  replicas: 3  # initial replica count; adjust as needed
+  selector:
+    matchLabels:
+      app: bookingprocessor
+  template:
+    metadata:
+      labels:
+        app: bookingprocessor
+    spec:
+      containers:
+        - name: bookingprocessor
+          image: your-dockerhub-username/bookingprocessor:latest
+          env:
+            - name: DATABASE_URL
+              value: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
+          ports:
+            - containerPort: 8080
