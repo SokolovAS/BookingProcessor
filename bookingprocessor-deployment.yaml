@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: bookingprocessor
 spec:
-  replicas: 3  # initial replica count; adjust as needed
+  replicas: 3
   selector:
     matchLabels:
       app: bookingprocessor
@@ -14,9 +14,11 @@ spec:
     spec:
       containers:
         - name: bookingprocessor
-          image: your-dockerhub-username/bookingprocessor:latest
+          image: dn010590sas/bookingprocessor:latest
+          imagePullPolicy: Always
           env:
             - name: DATABASE_URL
               value: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
           ports:
             - containerPort: 8080
+

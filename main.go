@@ -2,11 +2,13 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
+	"github.com/google/uuid"
+	_ "github.com/jackc/pgx/v4/stdlib"
 	"log"
 	"net/http"
 	"os"
-
-	_ "github.com/lib/pq"
+	"time"
 )
 
 // runMigrations creates the necessary tables and constraints.
@@ -49,11 +51,19 @@ func main() {
 	}
 
 	// Open connection to PostgreSQL.
-	db, err := sql.Open("postgres", dbURL)
+	db, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 	defer db.Close()
+
+	// Configure connection pool
+	// Limit the maximum number of open connections to, say, 10.
+	db.SetMaxOpenConns(26)
+	// Set maximum number of idle connections (e.g., 5).
+	db.SetMaxIdleConns(10)
+	// Optional: set the maximum lifetime of a connection.
+	db.SetConnMaxLifetime(15 * time.Minute)
 
 	// Run migrations.
 	runMigrations(db)
@@ -62,13 +72,17 @@ func main() {
 	// For demo purposes, we insert a new user and a related hotel record.
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
 		// Insert a new user.
+
+		email := fmt.Sprintf("john+%s@example.com", uuid.New().String())
+
 		var userID int
 		err := db.QueryRow(`
 			INSERT INTO users (name, email)
-			VALUES ('John Doe', 'john@example.com')
+			VALUES ('John Doe', $1)
 			RETURNING id;
-		`).Scan(&userID)
+		`, email).Scan(&userID)
 		if err != nil {
+			log.Printf("Insert failed: %v", err)
 			http.Error(w, "Error inserting user", http.StatusInternalServerError)
 			return
 		}
@@ -76,6 +90,7 @@ func main() {
 		// Insert a hotel record linked to the user.
 		_, err = db.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
 		if err != nil {
+			log.Printf("Insert failed: %v", err)
 			http.Error(w, "Error inserting hotel", http.StatusInternalServerError)
 			return
 		}
