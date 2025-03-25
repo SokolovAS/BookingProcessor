@@ -59,9 +59,9 @@ func main() {
 
 	// Configure connection pool
 	// Limit the maximum number of open connections to, say, 10.
-	db.SetMaxOpenConns(26)
+	db.SetMaxOpenConns(9)
 	// Set maximum number of idle connections (e.g., 5).
-	db.SetMaxIdleConns(10)
+	db.SetMaxIdleConns(4)
 	// Optional: set the maximum lifetime of a connection.
 	db.SetConnMaxLifetime(15 * time.Minute)
 
