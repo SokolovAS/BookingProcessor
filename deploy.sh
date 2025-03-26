@@ -2,7 +2,9 @@
 set -eo pipefail
 
 IMAGE="dn010590sas/bookingprocessor:latest"
-DEPLOYMENT="bookingprocessor"
+RELEASE_NAME="bookingprocessor"
+NAMESPACE="default"
+CHART_PATH="./helm/bookingprocessor"
 
 echo "➡️ Building Docker image: $IMAGE"
 docker build -t "$IMAGE" .
@@ -10,13 +12,18 @@ docker build -t "$IMAGE" .
 echo "➡️ Pushing Docker image to registry"
 docker push "$IMAGE"
 
-echo "➡️ Applying updated YAML manifests"
-kubectl apply -f bookingprocessor-deployment.yaml
-
-echo "➡️ Restarting Kubernetes Deployment: $DEPLOYMENT"
-kubectl rollout restart deployment "$DEPLOYMENT"
+echo "➡️ Deploying Helm chart: $RELEASE_NAME"
+# --install: installs if not present, upgrades if it is
+# You can override values (like image tag) via --set or --values
+helm upgrade --install \
+  --namespace "$NAMESPACE" \
+  --create-namespace \
+  "$RELEASE_NAME" \
+  "$CHART_PATH" \
+  --set image.repository="dn010590sas/bookingprocessor" \
+  --set image.tag="latest"
 
 echo "➡️ Waiting for rollout to finish…"
-kubectl rollout status deployment "$DEPLOYMENT"
+kubectl rollout status deployment/"$RELEASE_NAME" --namespace "$NAMESPACE"
 
 echo "✅ Deployment complete!"

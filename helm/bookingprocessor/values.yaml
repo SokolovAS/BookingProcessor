@@ -1,0 +1,28 @@
+replicaCount: 3
+image:
+  repository: dn010590sas/bookingprocessor
+  tag: latest
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "4Gi"
+
+service:
+  type: NodePort
+  port: 80
+  targetPort: 8080
+  nodePort: 30080
+
+hpa:
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 50
+
+env:
+  DATABASE_URL: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
+  DB_MAX_CONNECTIONS: "100"
+  MAX_PODS: "10"
