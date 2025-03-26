@@ -10,6 +10,9 @@ docker build -t "$IMAGE" .
 echo "➡️ Pushing Docker image to registry"
 docker push "$IMAGE"
 
+echo "➡️ Applying updated YAML manifests"
+kubectl apply -f bookingprocessor-deployment.yaml
+
 echo "➡️ Restarting Kubernetes Deployment: $DEPLOYMENT"
 kubectl rollout restart deployment "$DEPLOYMENT"
 

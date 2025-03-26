@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -57,12 +58,16 @@ func main() {
 	}
 	defer db.Close()
 
-	// Configure connection pool
-	// Limit the maximum number of open connections to, say, 10.
-	db.SetMaxOpenConns(9)
-	// Set maximum number of idle connections (e.g., 5).
-	db.SetMaxIdleConns(4)
-	// Optional: set the maximum lifetime of a connection.
+	maxConn, _ := strconv.Atoi(os.Getenv("MAX_CONNECTIONS"))
+	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
+
+	perPod := maxConn / maxPods
+	idle := perPod / 2
+
+	db.SetMaxOpenConns(perPod)
+
+	db.SetMaxIdleConns(idle)
+
 	db.SetConnMaxLifetime(15 * time.Minute)
 
 	// Run migrations.
