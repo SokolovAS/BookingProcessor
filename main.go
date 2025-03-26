@@ -3,13 +3,16 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v4/stdlib"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // runMigrations creates the necessary tables and constraints.
@@ -72,6 +75,15 @@ func main() {
 
 	// Run migrations.
 	runMigrations(db)
+
+	var requestsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bookingProcessor_requests_total",
+		Help: "Total requests processed",
+	})
+
+	prometheus.MustRegister(requestsCounter)
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	// Simple HTTP endpoint that demonstrates inserting data.
 	// For demo purposes, we insert a new user and a related hotel record.

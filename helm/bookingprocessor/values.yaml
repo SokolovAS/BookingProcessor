@@ -26,3 +26,7 @@ env:
   DATABASE_URL: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
   DB_MAX_CONNECTIONS: "100"
   MAX_PODS: "10"
+
+prometheus:
+  serviceMonitor:
+    enabled: true
