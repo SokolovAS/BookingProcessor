@@ -58,7 +58,7 @@ func main() {
 	}
 	defer db.Close()
 
-	maxConn, _ := strconv.Atoi(os.Getenv("MAX_CONNECTIONS"))
+	maxConn, _ := strconv.Atoi(os.Getenv("DB_MAX_CONNECTIONS"))
 	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
 
 	perPod := maxConn / maxPods
