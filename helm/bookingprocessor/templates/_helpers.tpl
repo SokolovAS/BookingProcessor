@@ -60,3 +60,12 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "mychart.fullname" -}}
+{{- if eq .Release.Name .Chart.Name -}}
+  {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+  {{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+

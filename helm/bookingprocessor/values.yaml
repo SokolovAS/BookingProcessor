@@ -30,3 +30,14 @@ env:
 prometheus:
   serviceMonitor:
     enabled: true
+
+postgres:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: postgres
+    tag: "13"
+  username: "testuser"
+  password: "testpass"
+  database: "testdb"
+  port: 5432

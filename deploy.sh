@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
 IMAGE="dn010590sas/bookingprocessor:latest"
 RELEASE_NAME="bookingprocessor"
 NAMESPACE="default"
 CHART_PATH="./helm/bookingprocessor"
 
-echo "➡️ Building Docker image: $IMAGE"
-docker build -t "$IMAGE" .
-
-echo "➡️ Pushing Docker image to registry"
-docker push "$IMAGE"
+if [ "${1:-}" != "-d" ]; then
+  echo "➡️ Building Docker image: $IMAGE"
+  docker build -t "$IMAGE" .
+  
+  echo "➡️ Pushing Docker image to registry"
+  docker push "$IMAGE"
+else
+  echo "➡️ Deploy-only mode (-d flag detected): Skipping build and push steps"
+fi
 
 echo "➡️ Deploying Helm chart: $RELEASE_NAME"
-# --install: installs if not present, upgrades if it is
-# You can override values (like image tag) via --set or --values
 helm upgrade --install \
   --namespace "$NAMESPACE" \
   --create-namespace \
