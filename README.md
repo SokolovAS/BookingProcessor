@@ -32,5 +32,17 @@ kubectl get pods -l app=bookingprocessor -w
 ```
 kubectl get hpa bookingprocessor-hpa -w
 ```
+### Enable Grafana dashboard
+#### Install Prometeus/Grafana stack
+```
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install prometheus prometheus-community/kube-prometheus-stack --namespace default --create-namespace
+```
+Port forward
+```
+kubectl port-forward svc/prometheus-grafana --namespace default 3000:80
+```
+
 
 
