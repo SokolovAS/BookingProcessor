@@ -18,9 +18,9 @@ service:
   nodePort: 30080
 
 hpa:
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 10
-  targetCPUUtilizationPercentage: 50
+  targetCPUUtilizationPercentage: 30
 
 env:
   DATABASE_URL: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
