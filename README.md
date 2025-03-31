@@ -32,6 +32,12 @@ kubectl get pods -l app=bookingprocessor -w
 ```
 kubectl get hpa bookingprocessor-hpa -w
 ```
+### Patch the metrics-server deployment to add the --kubelet-insecure-tls flag. For example, run:
+```
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+
+kubectl get pods -n kube-system
+```
 ### Enable Grafana dashboard
 #### Install Prometeus/Grafana stack
 ```
@@ -42,6 +48,22 @@ helm install prometheus prometheus-community/kube-prometheus-stack --namespace d
 Port forward
 ```
 kubectl port-forward svc/prometheus-grafana --namespace default 3000:80
+```
+or
+```
+helm upgrade prometeus prometheus-community/prometheus --version 20.1.0 --install --set prometheus-pushgateway.enabled=false --set prometheus-node-exporter.hostRootFsMount.enabled=false --set server.global.scrape_interval=15s --set server.global.evaluation_interval=15s
+```
+```
+helm install grafana grafana/grafana --namespace default --set adminPassword='YourStrongPassword' \
+  --set "datasources.datasources\.yaml.apiVersion=1" \
+  --set "datasources.datasources\.yaml.datasources[0].name=Prometheus" \
+  --set "datasources.datasources\.yaml.datasources[0].type=prometheus" \
+  --set "datasources.datasources\.yaml.datasources[0].url=http://prometeus-prometheus-server.default.svc.cluster.local" \
+  --set "datasources.datasources\.yaml.datasources[0].access=proxy" \
+  --set "datasources.datasources\.yaml.datasources[0].isDefault=true"
+```
+```
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
 ```
 
 

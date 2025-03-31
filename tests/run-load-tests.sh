@@ -8,7 +8,7 @@ echo "Launching new 'loadtest' pod..."
 kubectl run loadtest \
   --image=dn010590sas/hey:latest \
   --restart=Never \
-  -- -n 50000 -c 500 http://bookingprocessor:80/insert
+  -- -n 500000 -c 10000 http://bookingprocessor:80/insert
 
 echo "Waiting up to 60 seconds for 'loadtest' pod to be ready..."
 kubectl wait --for=condition=Ready pod/loadtest --timeout=60s
