@@ -25,4 +25,11 @@ spec:
               value: {{ .Values.postgres.database | quote }}
           ports:
             - containerPort: {{ .Values.postgres.port | default 5432 }}
+          resources:
+            requests:
+              cpu: {{.Values.postgres.resources.requests.cpu}}
+              memory: {{.Values.postgres.resources.requests.memory}}
+            limits:
+              cpu: {{.Values.postgres.resources.limits.cpu}}
+              memory: {{.Values.postgres.resources.limits.memory}}
 {{- end }}
