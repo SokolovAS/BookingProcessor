@@ -25,6 +25,10 @@ helm upgrade --install \
   --set image.repository="dn010590sas/bookingprocessor" \
   --set image.tag="latest"
 
+# Force a complete rollout so that all pods are refreshed with the new image
+echo "➡️ Forcing rollout restart of deployment: $RELEASE_NAME"
+kubectl rollout restart deployment/"$RELEASE_NAME" --namespace "$NAMESPACE"
+
 echo "➡️ Waiting for rollout to finish…"
 kubectl rollout status deployment/"$RELEASE_NAME" --namespace "$NAMESPACE"
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"time"
@@ -155,6 +156,14 @@ func main() {
 
 		w.Write([]byte("Data inserted successfully"))
 	})
+
+	log.Println("Starting pprof goroutine...")
+	go func() {
+		log.Println("pprof server listening on :6060")
+		if err := http.ListenAndServe(":6060", nil); err != nil {
+			log.Fatalf("pprof server error: %v", err)
+		}
+	}()
 
 	log.Println("Server is running on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
