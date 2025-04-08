@@ -1,4 +1,4 @@
-replicaCount: 3
+replicaCount: 5
 image:
   repository: dn010590sas/bookingprocessor
   tag: latest
@@ -25,7 +25,7 @@ hpa:
 env:
   DATABASE_URL: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
   DB_MAX_CONNECTIONS: "100"
-  MAX_PODS: "10"
+  MAX_PODS: "5"
 
 prometheus:
   serviceMonitor:
