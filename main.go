@@ -16,7 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// runMigrations creates the necessary tables if they do not exist.
+// runMigrations creates the necessary tables and constraints.
 func runMigrations(db *sql.DB) {
 	// Create users table if it doesn't exist.
 	_, err := db.Exec(`
@@ -24,7 +24,7 @@ func runMigrations(db *sql.DB) {
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL,
 			email TEXT UNIQUE NOT NULL,
-			created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
 	if err != nil {
@@ -37,50 +37,13 @@ func runMigrations(db *sql.DB) {
 			id SERIAL PRIMARY KEY,
 			user_id INT,
 			data TEXT,
-			created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 			CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id)
 		);
 	`)
 	if err != nil {
 		log.Fatalf("Error creating hotels table: %v", err)
 	}
-}
-
-func insertData(db *sql.DB, email string) error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// In case of error, rollback the transaction.
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
-	var userID int
-
-	err = tx.QueryRow(`
-		INSERT INTO users (name, email)
-		VALUES ('John Doe', $1)
-		RETURNING id;
-	`, email).Scan(&userID)
-	if err != nil {
-		return fmt.Errorf("insert user failed: %w", err)
-	}
-
-	_, err = tx.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
-	if err != nil {
-		return fmt.Errorf("insert hotel failed: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit transaction failed: %w", err)
-	}
-
-	return nil
 }
 
 func main() {
@@ -99,61 +62,56 @@ func main() {
 	}
 	defer db.Close()
 
-	// Configure connection pool settings.
 	maxConn, _ := strconv.Atoi(os.Getenv("DB_MAX_CONNECTIONS"))
 	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
+
 	perPod := maxConn / maxPods
 	idle := perPod / 2
 
 	db.SetMaxOpenConns(perPod)
+
 	db.SetMaxIdleConns(idle)
+
 	db.SetConnMaxLifetime(15 * time.Minute)
 
 	// Run migrations.
 	runMigrations(db)
 
-	// Set up Prometheus metrics.
-	requestsCounter := prometheus.NewCounter(prometheus.CounterOpts{
+	var requestsCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "bookingProcessor_requests_total",
 		Help: "Total requests processed",
 	})
+
 	prometheus.MustRegister(requestsCounter)
+
 	http.Handle("/metrics", promhttp.Handler())
 
-	// Create a semaphore to limit concurrent DB operations to perPod.
-	sem := make(chan struct{}, perPod)
-
+	// Simple HTTP endpoint that demonstrates inserting data.
+	// For demo purposes, we insert a new user and a related hotel record.
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
-		requestsCounter.Inc()
+		// Insert a new user.
 
 		email := fmt.Sprintf("john+%s@example.com", uuid.New().String())
 
-		resultCh := make(chan error, 1)
-
-		// Launch the DB insert in a separate goroutine.
-		go func() {
-			// Acquire a token.
-			sem <- struct{}{}
-			defer func() {
-				<-sem // Release the token.
-			}()
-
-			resultCh <- insertData(db, email)
-		}()
-
-		// Wait for the insert result or timeout.
-		select {
-		case err := <-resultCh:
-			if err != nil {
-				log.Printf("Transaction failed: %v", err)
-				http.Error(w, "Error inserting data", http.StatusInternalServerError)
-				return
-			}
-		case <-time.After(5 * time.Second):
-			http.Error(w, "Request timed out", http.StatusGatewayTimeout)
+		var userID int
+		err := db.QueryRow(`
+			INSERT INTO users (name, email)
+			VALUES ('John Doe', $1)
+			RETURNING id;
+		`, email).Scan(&userID)
+		if err != nil {
+			log.Printf("Insert failed: %v", err)
+			http.Error(w, "Error inserting user", http.StatusInternalServerError)
 			return
 		}
 
+		// Insert a hotel record linked to the user.
+		_, err = db.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
+		if err != nil {
+			log.Printf("Insert failed: %v", err)
+			http.Error(w, "Error inserting hotel", http.StatusInternalServerError)
+			return
+		}
 		w.Write([]byte("Data inserted successfully"))
 	})
 
