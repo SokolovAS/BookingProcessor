@@ -93,35 +93,57 @@ func main() {
 
 		email := fmt.Sprintf("john+%s@example.com", uuid.New().String())
 
+		tx, err := db.Begin()
+		if err != nil {
+			log.Printf("failed to begin transaction: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			if err != nil {
+				tx.Rollback()
+			}
+		}()
+
 		var userID int
-		err := db.QueryRow(`
+
+		// Insert into users table and get the new user's ID.
+		err = tx.QueryRow(`
 			INSERT INTO users (name, email)
 			VALUES ('John Doe', $1)
 			RETURNING id;
 		`, email).Scan(&userID)
 		if err != nil {
-			log.Printf("Insert failed: %v", err)
+			log.Printf("Insert into users failed: %v", err)
 			http.Error(w, "Error inserting user", http.StatusInternalServerError)
 			return
 		}
 
 		// Insert a hotel record linked to the user.
-		_, err = db.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
+		_, err = tx.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
 		if err != nil {
-			log.Printf("Insert failed: %v", err)
+			log.Printf("Insert into hotels failed: %v", err)
 			http.Error(w, "Error inserting hotel", http.StatusInternalServerError)
 			return
 		}
+
+		// Commit the transaction.
+		if err = tx.Commit(); err != nil {
+			log.Printf("Transaction commit failed: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		w.Write([]byte("Data inserted successfully"))
 	})
 
-	log.Println("Starting pprof goroutine...")
-	go func() {
-		log.Println("pprof server listening on :6060")
-		if err := http.ListenAndServe(":6060", nil); err != nil {
-			log.Fatalf("pprof server error: %v", err)
-		}
-	}()
+	// log.Println("Starting pprof goroutine...")
+	// go func() {
+	// 	log.Println("pprof server listening on :6060")
+	// 	if err := http.ListenAndServe(":6060", nil); err != nil {
+	// 		log.Fatalf("pprof server error: %v", err)
+	// 	}
+	// }()
 
 	log.Println("Server is running on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

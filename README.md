@@ -66,5 +66,12 @@ helm install grafana grafana/grafana --namespace default --set adminPassword='Yo
 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
 ```
 
+#Profiling
+###Add pprof on the pod
+```
+kubectl debug pod/bookingprocessor-5997d75ccd-7kmk5 -it --image=dn010590sas/pprof:latest --target=bookingprocessor -- /bin/sh
+
+```
+
 
 

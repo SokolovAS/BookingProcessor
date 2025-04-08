@@ -12,6 +12,7 @@ spec:
       labels:
         app: bookingprocessor
     spec:
+      shareProcessNamespace: true
       containers:
         - name: bookingprocessor
           image: dn010590sas/bookingprocessor:latest
@@ -30,10 +31,5 @@ spec:
               cpu: {{ .Values.resources.requests.cpu }}
               memory: {{ .Values.resources.requests.memory }}
             limits:
-              cpu: {{.Values.resources.limits.cpu}}
-              memory: {{.Values.resources.limits.memory}}
-        # - name: pprof
-        #   image: dn010590sas/pprof:latest
-        #   imagePullPolicy: Always
-        #   ports:
-        #     - containerPort: 6060
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
