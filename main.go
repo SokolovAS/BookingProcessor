@@ -74,11 +74,10 @@ func main() {
 
 	db.SetConnMaxLifetime(15 * time.Minute)
 
-	// Run migrations.
 	runMigrations(db)
 
 	var requestsCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bookingProcessor_requests_total",
+		Name: "booking_processor_requests_total",
 		Help: "Total requests processed",
 	})
 
@@ -86,10 +85,8 @@ func main() {
 
 	http.Handle("/metrics", promhttp.Handler())
 
-	// Simple HTTP endpoint that demonstrates inserting data.
-	// For demo purposes, we insert a new user and a related hotel record.
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
-		// Insert a new user.
+		requestsCounter.Inc()
 
 		email := fmt.Sprintf("john+%s@example.com", uuid.New().String())
 
@@ -137,13 +134,13 @@ func main() {
 		w.Write([]byte("Data inserted successfully"))
 	})
 
-	// log.Println("Starting pprof goroutine...")
-	// go func() {
-	// 	log.Println("pprof server listening on :6060")
-	// 	if err := http.ListenAndServe(":6060", nil); err != nil {
-	// 		log.Fatalf("pprof server error: %v", err)
-	// 	}
-	// }()
+	log.Println("Starting pprof goroutine...")
+	go func() {
+		log.Println("pprof server listening on :6060")
+		if err := http.ListenAndServe(":6060", nil); err != nil {
+			log.Fatalf("pprof server error: %v", err)
+		}
+	}()
 
 	log.Println("Server is running on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
