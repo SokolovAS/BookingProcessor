@@ -2,9 +2,10 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io"
+	"github.com/SokolovAS/bookingprocessor/internal/Handlers"
+	repository "github.com/SokolovAS/bookingprocessor/internal/Repository"
+	services "github.com/SokolovAS/bookingprocessor/internal/Services"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/graphql-go/graphql"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -86,107 +86,13 @@ func main() {
 
 	prometheus.MustRegister(requestsCounter)
 
-	var userType = graphql.NewObject(graphql.ObjectConfig{
-		Name: "User",
-		Fields: graphql.Fields{
-			"id": &graphql.Field{
-				Type: graphql.Int,
-			},
-			"name": &graphql.Field{
-				Type: graphql.String,
-			},
-			"email": &graphql.Field{
-				Type: graphql.String,
-			},
-			"created_at": &graphql.Field{
-				// Return the created time as a string (formatted in RFC3339)
-				Type: graphql.String,
-			},
-		},
-	})
+	userRepo := repository.NewUserRepository(db)
+	hotelRepo := repository.NewHotelRepository(db)
+	userService := services.NewUserService(userRepo)
+	hotelService := services.NewHotelService(hotelRepo)
+	graphQLHandler := Handlers.NewGraphQLHandler(userService)
 
-	var queryType = graphql.NewObject(graphql.ObjectConfig{
-		Name: "Query",
-		Fields: graphql.Fields{
-			"hello": &graphql.Field{
-				Type: graphql.String,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return "world", nil
-				},
-			},
-			"users": &graphql.Field{
-				Type: graphql.NewList(userType),
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// Query all users from the database.
-					rows, err := db.Query("SELECT id, name, email, created_at FROM users")
-					if err != nil {
-						return nil, err
-					}
-					defer rows.Close()
-
-					var users []map[string]interface{}
-					for rows.Next() {
-						var id int
-						var name, email string
-						var createdAt time.Time
-						if err := rows.Scan(&id, &name, &email, &createdAt); err != nil {
-							return nil, err
-						}
-
-						user := map[string]interface{}{
-							"id":         id,
-							"name":       name,
-							"email":      email,
-							"created_at": createdAt.Format(time.RFC3339),
-						}
-						users = append(users, user)
-					}
-					return users, nil
-				},
-			},
-		},
-	})
-
-	// Create the schema with our query type.
-	var schema, schemaErr = graphql.NewSchema(graphql.SchemaConfig{
-		Query: queryType,
-	})
-
-	if schemaErr != nil {
-		log.Fatalf("failed to create new schema, error: %v", schemaErr)
-	}
-
-	http.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
-		var query string
-
-		// Support both GET (query parameter) and POST (request body)
-		if r.Method == "POST" {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, "unable to read request body", http.StatusBadRequest)
-				return
-			}
-			// Assume the POST body is a plain GraphQL query. For a more complete implementation, you might handle JSON payloads.
-			query = string(body)
-		} else {
-			query = r.URL.Query().Get("query")
-		}
-
-		result := graphql.Do(graphql.Params{
-			Schema:        schema,
-			RequestString: query,
-		})
-
-		// Log errors if any
-		if len(result.Errors) > 0 {
-			log.Printf("failed to execute graphql operation, errors: %+v", result.Errors)
-		}
-
-		// Return the result as a JSON response
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
-	})
-
+	http.Handle("/graphql", graphQLHandler)
 	http.Handle("/metrics", promhttp.Handler())
 
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
@@ -206,26 +112,14 @@ func main() {
 			}
 		}()
 
-		var userID int
-
-		// Insert into users table and get the new user's ID.
-		err = tx.QueryRow(`
-			INSERT INTO users (name, email)
-			VALUES ('John Doe', $1)
-			RETURNING id;
-		`, email).Scan(&userID)
+		u, err := userService.Register("John Dou", email)
 		if err != nil {
-			log.Printf("Insert into users failed: %v", err)
-			http.Error(w, "Error inserting user", http.StatusInternalServerError)
-			return
+			log.Fatalf("failed to register user: %v", err)
 		}
 
-		// Insert a hotel record linked to the user.
-		_, err = tx.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userID, "Sample Hotel Data")
+		err = hotelService.Create(u.ID)
 		if err != nil {
-			log.Printf("Insert into hotels failed: %v", err)
-			http.Error(w, "Error inserting hotel", http.StatusInternalServerError)
-			return
+			log.Fatalf("Error creating hotel: %v", err)
 		}
 
 		// Commit the transaction.

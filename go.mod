@@ -1,4 +1,4 @@
-module BookingService
+module github.com/SokolovAS/bookingprocessor
 
 go 1.21
 
@@ -10,10 +10,12 @@ require (
 
 require github.com/prometheus/client_golang v1.21.1
 
+replace github.com/SokolovAS/bookingprocessor => ./
+
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/graphql-go/graphql v0.8.1 // indirect
+	github.com/graphql-go/graphql v0.8.1
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgconn v1.14.3 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
