@@ -9,7 +9,7 @@ CHART_PATH="./helm/bookingprocessor"
 if [ "${1:-}" != "-d" ]; then
   echo "➡️ Building Docker image: $IMAGE"
   docker build -t "$IMAGE" .
-  
+
   echo "➡️ Pushing Docker image to registry"
   docker push "$IMAGE"
 else

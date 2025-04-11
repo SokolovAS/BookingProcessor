@@ -8,7 +8,13 @@ echo "Launching new 'loadtest' pod..."
 kubectl run loadtest \
   --image=dn010590sas/hey:latest \
   --restart=Never \
-  -- -n 100 -c 10 http://bookingprocessor:80/insert
+  -- -n 100000 \
+     -c 20000 \
+     -m POST \
+     -H "Content-Type: application/json" \
+     -d '{"example":"data"}' \
+     http://bookingprocessor:80/insert
+
 
 echo "Waiting up to 60 seconds for 'loadtest' pod to be ready..."
 kubectl wait --for=condition=Ready pod/loadtest --timeout=60s

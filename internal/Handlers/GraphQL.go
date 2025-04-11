@@ -69,6 +69,7 @@ func NewGraphQLHandler(userService *services.UserService) *GraphQLHandler {
 }
 
 func (h *GraphQLHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Println("Received /graphQl request")
 	var query string
 	if r.Method == http.MethodPost {
 		body, err := io.ReadAll(r.Body)
@@ -93,4 +94,5 @@ func (h *GraphQLHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+	log.Println("Response /graphQl request")
 }

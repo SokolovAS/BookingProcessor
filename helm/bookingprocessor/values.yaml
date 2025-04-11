@@ -1,4 +1,4 @@
-replicaCount: 5
+replicaCount: 2
 image:
   repository: dn010590sas/bookingprocessor
   tag: latest
@@ -18,7 +18,7 @@ service:
   nodePort: 30080
 
 hpa:
-  minReplicas: 5
+  minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 30
 

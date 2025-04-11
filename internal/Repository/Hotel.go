@@ -17,7 +17,7 @@ func NewHotelRepository(db *sql.DB) services.HotelRepository {
 }
 
 func (r *HotelRepository) CreateTx(tx *sql.Tx, userid int) error {
-	err := tx.QueryRow("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userid, "Some data")
+	_, err := tx.Exec("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userid, "Some data")
 	if err != nil {
 		log.Printf("Insert into hotels failed: %v", err)
 		return fmt.Errorf("error %v", err)

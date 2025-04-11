@@ -23,7 +23,7 @@ func (r *UserRepo) CreateTX(tx *sql.Tx, email string) (int, error) {
 		INSERT INTO users (name, email)
 		VALUES ($1, $2)
 		RETURNING id
-	`, email, "John Dou").Scan(&id)
+	`, "John Dou", email).Scan(&id)
 	return id, err
 }
 

@@ -95,8 +95,10 @@ func main() {
 
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
 		requestsCounter.Inc()
+		log.Println("Received /insert request")
 
 		bookingHandler.Inset(w, r)
+		log.Println("Response sent for /insert")
 	})
 
 	log.Println("Starting pprof goroutine...")
