@@ -17,13 +17,13 @@ func NewUserRepository(db *sql.DB) services.UserRepository {
 	}
 }
 
-func (r *UserRepo) Create(user models.User) (int, error) {
+func (r *UserRepo) CreateTX(tx *sql.Tx, email string) (int, error) {
 	var id int
-	err := r.db.QueryRow(`
+	err := tx.QueryRow(`
 		INSERT INTO users (name, email)
 		VALUES ($1, $2)
 		RETURNING id
-	`, user.Name, user.Email).Scan(&id)
+	`, email, "John Dou").Scan(&id)
 	return id, err
 }
 

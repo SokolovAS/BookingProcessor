@@ -54,7 +54,7 @@ func NewGraphQLHandler(userService *services.UserService) *GraphQLHandler {
 		},
 	})
 
-	// Create the schema with our query type.
+	// CreateTX the schema with our query type.
 	var schema, schemaErr = graphql.NewSchema(graphql.SchemaConfig{
 		Query: queryType,
 	})

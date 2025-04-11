@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"github.com/SokolovAS/bookingprocessor/internal/Handlers"
 	repository "github.com/SokolovAS/bookingprocessor/internal/Repository"
 	services "github.com/SokolovAS/bookingprocessor/internal/Services"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -21,7 +19,7 @@ import (
 
 // runMigrations creates the necessary tables and constraints.
 func runMigrations(db *sql.DB) {
-	// Create users table if it doesn't exist.
+	// CreateTX users table if it doesn't exist.
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id SERIAL PRIMARY KEY,
@@ -34,7 +32,7 @@ func runMigrations(db *sql.DB) {
 		log.Fatalf("Error creating users table: %v", err)
 	}
 
-	// Create hotels table with a foreign key to users.
+	// CreateTX hotels table with a foreign key to users.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS hotels (
 			id SERIAL PRIMARY KEY,
@@ -72,9 +70,7 @@ func main() {
 	idle := perPod / 2
 
 	db.SetMaxOpenConns(perPod)
-
 	db.SetMaxIdleConns(idle)
-
 	db.SetConnMaxLifetime(15 * time.Minute)
 
 	runMigrations(db)
@@ -88,9 +84,11 @@ func main() {
 
 	userRepo := repository.NewUserRepository(db)
 	hotelRepo := repository.NewHotelRepository(db)
+	bookingRepo := repository.NewBookingRepo(db, userRepo, hotelRepo)
 	userService := services.NewUserService(userRepo)
-	hotelService := services.NewHotelService(hotelRepo)
+	BookingService := services.NewBookingService(bookingRepo)
 	graphQLHandler := Handlers.NewGraphQLHandler(userService)
+	bookingHandler := Handlers.NewBookingHandler(BookingService)
 
 	http.Handle("/graphql", graphQLHandler)
 	http.Handle("/metrics", promhttp.Handler())
@@ -98,38 +96,7 @@ func main() {
 	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
 		requestsCounter.Inc()
 
-		email := fmt.Sprintf("john+%s@example.com", uuid.New().String())
-
-		tx, err := db.Begin()
-		if err != nil {
-			log.Printf("failed to begin transaction: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		defer func() {
-			if err != nil {
-				tx.Rollback()
-			}
-		}()
-
-		u, err := userService.Register("John Dou", email)
-		if err != nil {
-			log.Fatalf("failed to register user: %v", err)
-		}
-
-		err = hotelService.Create(u.ID)
-		if err != nil {
-			log.Fatalf("Error creating hotel: %v", err)
-		}
-
-		// Commit the transaction.
-		if err = tx.Commit(); err != nil {
-			log.Printf("Transaction commit failed: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		w.Write([]byte("Data inserted successfully"))
+		bookingHandler.Inset(w, r)
 	})
 
 	log.Println("Starting pprof goroutine...")

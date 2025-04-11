@@ -1,7 +1,9 @@
 package services
 
-import models "github.com/SokolovAS/bookingprocessor/internal/Models"
+import (
+	"database/sql"
+)
 
 type HotelRepository interface {
-	Create(hotel models.Hotel) error
+	CreateTx(tx *sql.Tx, userid int) error
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	models "github.com/SokolovAS/bookingprocessor/internal/Models"
 	services "github.com/SokolovAS/bookingprocessor/internal/Services"
 )
 
@@ -17,8 +16,8 @@ func NewHotelRepository(db *sql.DB) services.HotelRepository {
 	return &HotelRepository{db: db}
 }
 
-func (r *HotelRepository) Create(hotel models.Hotel) error {
-	err := r.db.QueryRow("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", hotel.UserID, hotel.Data)
+func (r *HotelRepository) CreateTx(tx *sql.Tx, userid int) error {
+	err := tx.QueryRow("INSERT INTO hotels (user_id, data) VALUES ($1, $2);", userid, "Some data")
 	if err != nil {
 		log.Printf("Insert into hotels failed: %v", err)
 		return fmt.Errorf("error %v", err)
