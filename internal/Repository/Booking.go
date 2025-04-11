@@ -26,6 +26,15 @@ func (br *BookingRepo) Inset(email string) error {
 		panic(err.Error())
 		return err
 	}
+
+	defer func() {
+		// If there's a panic, rollback and re-panic.
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		}
+	}()
+
 	userId, err := br.UserRepo.CreateTX(tx, email)
 	if err != nil {
 		panic(err.Error())

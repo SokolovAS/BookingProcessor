@@ -8,8 +8,8 @@ echo "Launching new 'loadtest' pod..."
 kubectl run loadtest \
   --image=dn010590sas/hey:latest \
   --restart=Never \
-  -- -n 50000 \
-     -c 10000 \
+  -- -n 100000 \
+     -c 20000 \
      -m POST \
      -H "Content-Type: application/json" \
      -d '{"example":"data"}' \
