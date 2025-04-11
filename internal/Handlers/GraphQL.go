@@ -2,11 +2,12 @@ package Handlers
 
 import (
 	"encoding/json"
-	services "github.com/SokolovAS/bookingprocessor/internal/Services"
-	"github.com/graphql-go/graphql"
 	"io"
 	"log"
 	"net/http"
+
+	services "github.com/SokolovAS/bookingprocessor/internal/Services"
+	"github.com/graphql-go/graphql"
 )
 
 type GraphQLHandler struct {
