@@ -70,8 +70,22 @@ helm install grafana grafana/grafana --namespace default --set adminPassword='Yo
 ###Add pprof on the pod
 ```
 kubectl debug pod/bookingprocessor-5997d75ccd-7kmk5 -it --image=dn010590sas/pprof:latest --target=bookingprocessor -- /bin/sh
-
 ```
+
+### 1. Build & Push + Deploy BookingProcessor (no Postgres restart)
+``./deploy.sh``
+
+### 2. Deploy-Only (Skip Build/Push) + No Postgres restart
+
+``./deploy.sh -d``
+
+### 3. Build & Push + Deploy BookingProcessor + Restart Postgres
+
+``./deploy.sh -p``
+
+### 4. Deploy-Only (Skip Build/Push) + Restart Postgres
+
+``./deploy.sh -d -p``
 
 
 

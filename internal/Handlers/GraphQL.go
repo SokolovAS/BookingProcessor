@@ -68,6 +68,8 @@ func NewGraphQLHandler(userService *services.UserService) *GraphQLHandler {
 	}
 }
 
+// For test curl -X POST -d '{ users { id name email created_at } }' http://localhost:8080/graphql
+
 func (h *GraphQLHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("Received /graphQl request")
 	var query string
