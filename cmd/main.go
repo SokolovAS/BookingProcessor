@@ -17,89 +17,106 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// DROP TABLE IF EXISTS hotels CASCADE;
 func runMigrations(db *sql.DB) {
-
-	if _, err := db.Exec(`
-        ALTER DATABASE postgres
-          SET citus.shard_replication_factor = 1;
-    `); err != nil {
-		log.Fatalf("Error setting shard_replication_factor on postgres DB: %v", err)
+	// ────────────────────────────────────
+	// 1) DROP old tables (dev only)
+	if _, err := db.Exec(`DROP TABLE IF EXISTS hotels CASCADE;`); err != nil {
+		log.Fatalf("Error dropping hotels: %v", err)
+	}
+	if _, err := db.Exec(`DROP TABLE IF EXISTS users CASCADE;`); err != nil {
+		log.Fatalf("Error dropping users: %v", err)
 	}
 
-	db.Exec(`DROP TABLE IF EXISTS hotels CASCADE;`)
-	db.Exec(`DROP TABLE IF EXISTS users;`)
-
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id BIGSERIAL,
-			name     TEXT             NOT NULL,
-			email    TEXT             NOT NULL,
-			created_at TIMESTAMPTZ    DEFAULT CURRENT_TIMESTAMP
-		);
-	`)
+	// Begin a transaction to keep SET + DISTRIBUTE in one session
+	tx, err := db.Begin()
 	if err != nil {
+		log.Fatalf("Error starting transaction for users: %v", err)
+	}
+	defer tx.Rollback()
+
+	// 1) Create the raw users table (no constraints)
+	if _, err := tx.Exec(`
+    CREATE TABLE users (
+      id          BIGSERIAL,
+      name        TEXT          NOT NULL,
+      email       TEXT          NOT NULL,
+      created_at  TIMESTAMPTZ   DEFAULT CURRENT_TIMESTAMP
+    );
+  `); err != nil {
 		log.Fatalf("Error creating users table: %v", err)
 	}
 
-	_, err = db.Exec(`
-		SELECT create_distributed_table('users', 'id');
-	`)
-	if err != nil {
+	// 2) Tell Citus to shard with replication_factor = 1
+	if _, err := tx.Exec(`SET citus.shard_replication_factor = 1;`); err != nil {
+		log.Fatalf("Error setting shard_replication_factor for users: %v", err)
+	}
+
+	// 3) Distribute the users table on the id column
+	if _, err := tx.Exec(
+		`SELECT create_distributed_table('users', 'id');`,
+	); err != nil {
 		log.Fatalf("Error distributing users table: %v", err)
 	}
 
-	_, err = db.Exec(`
-		ALTER TABLE users
-		  ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-	`)
-	if err != nil {
+	// 4) Add your constraints on the coordinator
+	if _, err := tx.Exec(
+		`ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (id);`,
+	); err != nil {
 		log.Fatalf("Error adding PK on users: %v", err)
 	}
-
-	_, err = db.Exec(`
-		ALTER TABLE users
-		  ADD CONSTRAINT users_email_key UNIQUE (id, email);
-	`)
-	if err != nil {
-		log.Fatalf("Error adding UNIQUE on users.email: %v", err)
+	if _, err := tx.Exec(
+		`ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (id, email);`,
+	); err != nil {
+		log.Fatalf("Error adding UNIQUE on users: %v", err)
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS hotels (
-			id   BIGSERIAL,
-			user_id    BIGINT       NOT NULL,
-			data       TEXT,
-			created_at TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP
-		);
-	`)
-	if err != nil {
+	// 3a) Create the raw table (can be outside Tx if you like)
+	if _, err := tx.Exec(`
+        CREATE TABLE hotels (
+          id          BIGSERIAL,
+          user_id     BIGINT       NOT NULL,
+          data        TEXT,
+          created_at  TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP
+        );
+    `); err != nil {
 		log.Fatalf("Error creating hotels table: %v", err)
 	}
 
-	_, err = db.Exec(`
-		SELECT create_distributed_table(
-		  'hotels',
-		  'user_id',
-		  colocate_with := 'users'
-		);
-	`)
-	if err != nil {
-		log.Fatalf("Error distributing hotels table: %v", err)
+	// 3b) Set replication_factor = 1 in *this* session
+	if _, err := tx.Exec(
+		`SET citus.shard_replication_factor = 1;`,
+	); err != nil {
+		log.Fatalf("Error setting shard_replication_factor: %v", err)
 	}
 
-	_, err = db.Exec(`
-     	ALTER TABLE hotels
-        ADD CONSTRAINT hotels_pkey PRIMARY KEY (id, user_id);
-   `)
-	if err != nil {
+	// 3c) Distribute & co-locate (must be in same session as the SET!)
+	if _, err := tx.Exec(`
+        SELECT create_distributed_table(
+          'hotels',
+          'user_id',
+          colocate_with := 'users'
+        );
+    `); err != nil {
+		log.Fatalf("Error distributing hotels: %v", err)
+	}
+
+	// 3d) Add PK & FK on the coordinator
+	if _, err := tx.Exec(
+		`ALTER TABLE hotels ADD CONSTRAINT hotels_pkey PRIMARY KEY (user_id, id);`,
+	); err != nil {
 		log.Fatalf("Error adding PK on hotels: %v", err)
 	}
+	if _, err := tx.Exec(
+		`ALTER TABLE hotels
+           ADD CONSTRAINT hotels_user_fk FOREIGN KEY (user_id) REFERENCES users(id);`,
+	); err != nil {
+		log.Fatalf("Error adding FK on hotels: %v", err)
+	}
 
-	_, err = db.Exec(`
-	  ALTER TABLE hotels
-	    ADD CONSTRAINT hotels_user_fk
-	      FOREIGN KEY (user_id) REFERENCES users(id);
-	`)
+	if err := tx.Commit(); err != nil {
+		log.Fatalf("Error committing hotels migration: %v", err)
+	}
 }
 
 func main() {
