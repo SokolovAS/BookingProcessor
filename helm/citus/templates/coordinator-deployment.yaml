@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: citus-coordinator
+  labels:
+    app: {{ include "citus.name" . }}
+    role: coordinator
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "citus.name" . }}
+      role: coordinator
+  template:
+    metadata:
+      labels:
+        app: {{ include "citus.name" . }}
+        role: coordinator
+    spec:
+      containers:
+        - name: citus-coordinator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_PASSWORD
+              value: "{{ .Values.env.POSTGRES_PASSWORD }}"
+            - name: CITUS_ROLE
+              value: "coordinator"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

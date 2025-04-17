@@ -23,7 +23,7 @@ hpa:
   targetCPUUtilizationPercentage: 30
 
 env:
-  DATABASE_URL: "postgres://testuser:testpass@postgres:5432/testdb?sslmode=disable"
+  DATABASE_URL: "postgres://postgres:mypass@citus-coordinator:5432/postgres?sslmode=disable"
   DB_MAX_CONNECTIONS: "100"
   MAX_PODS: "5"
 

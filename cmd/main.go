@@ -17,34 +17,89 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// runMigrations creates the necessary tables and constraints.
 func runMigrations(db *sql.DB) {
-	// CreateTX users table if it doesn't exist.
+
+	if _, err := db.Exec(`
+        ALTER DATABASE postgres
+          SET citus.shard_replication_factor = 1;
+    `); err != nil {
+		log.Fatalf("Error setting shard_replication_factor on postgres DB: %v", err)
+	}
+
+	db.Exec(`DROP TABLE IF EXISTS hotels CASCADE;`)
+	db.Exec(`DROP TABLE IF EXISTS users;`)
+
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
-			id SERIAL PRIMARY KEY,
-			name TEXT NOT NULL,
-			email TEXT UNIQUE NOT NULL,
-			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+			id BIGSERIAL,
+			name     TEXT             NOT NULL,
+			email    TEXT             NOT NULL,
+			created_at TIMESTAMPTZ    DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
 	if err != nil {
 		log.Fatalf("Error creating users table: %v", err)
 	}
 
-	// CreateTX hotels table with a foreign key to users.
+	_, err = db.Exec(`
+		SELECT create_distributed_table('users', 'id');
+	`)
+	if err != nil {
+		log.Fatalf("Error distributing users table: %v", err)
+	}
+
+	_, err = db.Exec(`
+		ALTER TABLE users
+		  ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+	`)
+	if err != nil {
+		log.Fatalf("Error adding PK on users: %v", err)
+	}
+
+	_, err = db.Exec(`
+		ALTER TABLE users
+		  ADD CONSTRAINT users_email_key UNIQUE (id, email);
+	`)
+	if err != nil {
+		log.Fatalf("Error adding UNIQUE on users.email: %v", err)
+	}
+
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS hotels (
-			id SERIAL PRIMARY KEY,
-			user_id INT,
-			data TEXT,
-			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-			CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id)
+			id   BIGSERIAL,
+			user_id    BIGINT       NOT NULL,
+			data       TEXT,
+			created_at TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
 	if err != nil {
 		log.Fatalf("Error creating hotels table: %v", err)
 	}
+
+	_, err = db.Exec(`
+		SELECT create_distributed_table(
+		  'hotels',
+		  'user_id',
+		  colocate_with := 'users'
+		);
+	`)
+	if err != nil {
+		log.Fatalf("Error distributing hotels table: %v", err)
+	}
+
+	_, err = db.Exec(`
+     	ALTER TABLE hotels
+        ADD CONSTRAINT hotels_pkey PRIMARY KEY (id, user_id);
+   `)
+	if err != nil {
+		log.Fatalf("Error adding PK on hotels: %v", err)
+	}
+
+	_, err = db.Exec(`
+	  ALTER TABLE hotels
+	    ADD CONSTRAINT hotels_user_fk
+	      FOREIGN KEY (user_id) REFERENCES users(id);
+	`)
 }
 
 func main() {

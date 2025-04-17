@@ -1,0 +1,16 @@
+replicaCount: 1
+
+image:
+  repository: citusdata/citus
+  tag: "13.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5432
+
+env:
+  POSTGRES_PASSWORD: mypass
+  POSTGRES_MAX_CONNECTIONS: "110"
+
+resources: {}

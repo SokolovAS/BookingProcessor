@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: citus-worker
+  labels:
+    app: citus
+    role: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: citus
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: citus
+        role: worker
+    spec:
+      containers:
+        - name: citus-worker
+          image: citusdata/citus:13.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_PASSWORD
+              value: "mypass"
+            - name: CITUS_ROLE
+              value: "worker"
+            - name: CITUS_COORDINATOR_HOST
+              value: "citus-coordinator"  # This should match the coordinator service name
+          resources: {}
