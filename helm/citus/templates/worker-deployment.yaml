@@ -21,6 +21,13 @@ spec:
         - name: citus-worker
           image: citusdata/citus:13.0
           imagePullPolicy: IfNotPresent
+          args:
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=10"
+            - "-c"
+            - "max_wal_senders=10"
           ports:
             - containerPort: 5432
           env:
@@ -29,5 +36,6 @@ spec:
             - name: CITUS_ROLE
               value: "worker"
             - name: CITUS_COORDINATOR_HOST
-              value: "citus-coordinator"  # This should match the coordinator service name
-          resources: {}
+              value: "{{ include "citus.fullname" . }}-coordinator"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

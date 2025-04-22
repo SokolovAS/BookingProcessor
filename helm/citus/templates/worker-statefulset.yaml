@@ -1,0 +1,56 @@
+# templates/worker-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "citus.fullname" . }}-worker
+  labels:
+    app: {{ include "citus.name" . }}
+    role: worker
+spec:
+  serviceName: {{ include "citus.fullname" . }}-worker       # must match headless Service name
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "citus.name" . }}
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: {{ include "citus.name" . }}
+        role: worker
+    spec:
+      containers:
+        - name: citus-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=10"
+            - "-c"
+            - "max_wal_senders=10"
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_PASSWORD
+              value: "{{ .Values.env.POSTGRES_PASSWORD }}"
+            - name: POSTGRES_MAX_CONNECTIONS
+              value: "{{ .Values.env.POSTGRES_MAX_CONNECTIONS }}"
+            - name: CITUS_ROLE
+              value: "worker"
+            - name: CITUS_COORDINATOR_HOST
+              value: "{{ include "citus.fullname" . }}-coordinator.{{ .Release.Namespace }}.svc.cluster.local"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: {{ include "citus.name" . }}
+          role: worker
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.worker.storage }}

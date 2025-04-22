@@ -13,4 +13,8 @@ env:
   POSTGRES_PASSWORD: mypass
   POSTGRES_MAX_CONNECTIONS: "110"
 
+worker:
+  replicaCount: 2
+  storage: 10Gi
+
 resources: {}

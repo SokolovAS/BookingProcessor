@@ -1,16 +1,17 @@
+# templates/worker-headless-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: citus-coordinator
+  name: {{ include "citus.fullname" . }}-worker
   labels:
     app: {{ include "citus.name" . }}
-    role: coordinator
+    role: worker
 spec:
-  type: {{ .Values.service.type }}
+  clusterIP: None
   ports:
     - port: {{ .Values.service.port }}
       targetPort: 5432
       protocol: TCP
   selector:
     app: {{ include "citus.name" . }}
-    role: coordinator
+    role: worker

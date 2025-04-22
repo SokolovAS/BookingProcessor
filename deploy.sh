@@ -72,10 +72,8 @@ kubectl rollout status deployment/"$RELEASE_NAME" --namespace "$NAMESPACE"
 #############################################
 if [ "$RESTART_POSTGRES" = true ]; then
   echo "➡️ Forcing rollout restart of PostgreSQL deployment: postgres"
-  kubectl rollout restart deployment/postgres --namespace "$NAMESPACE"
+  helm upgrade --install citus ./helm/citus
 
-  echo "➡️ Waiting for PostgreSQL rollout to finish…"
-  kubectl rollout status deployment/postgres --namespace "$NAMESPACE"
 else
   echo "➡️ Skipping PostgreSQL restart (use -p flag to enable)"
 fi

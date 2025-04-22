@@ -21,6 +21,15 @@ spec:
         - name: citus-coordinator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=10"
+            - "-c"
+            - "max_wal_senders=10"
+            - "-c"
+            - "citus.enable_coordinator_workers=false"
           ports:
             - containerPort: 5432
           env:
@@ -28,5 +37,7 @@ spec:
               value: "{{ .Values.env.POSTGRES_PASSWORD }}"
             - name: CITUS_ROLE
               value: "coordinator"
+            - name: CITUS_LOCAL_HOSTNAME
+              value: "citus-coordinator.default.svc.cluster.local"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
