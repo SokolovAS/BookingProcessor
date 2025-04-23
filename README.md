@@ -98,6 +98,11 @@ FROM run_command_on_shards(
 
 ```
 
+# Test graphQL
+``
+curl -X POST -d '{ users { id email  } }' http://localhost:8080/graphql
+``
+
 
 
 
