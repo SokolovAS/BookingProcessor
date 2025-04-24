@@ -95,13 +95,51 @@ FROM run_command_on_shards(
   'events',
   $$ SELECT COUNT(*)::text AS cnt FROM ONLY %s $$
 );
+```
+### Add workers to coordinator manually
+```
+SELECT master_add_node(
+  'citus-worker-0.citus-worker.default.svc.cluster.local',
+  5432
+);
 
+SELECT master_add_node(
+  'citus-worker-1.citus-worker.default.svc.cluster.local',
+  5432
+);
+
+```
+#### Verify
+```
+SELECT nodeid, nodename, noderole, shouldhaveshards
+  FROM pg_dist_node;
 ```
 
 # Test graphQL
 ``
 curl -X POST -d '{ users { id email  } }' http://localhost:8080/graphql
 ``
+
+# Run migration
+```
+migrate \
+  -source file://internal/db/migrations \
+  -database "postgres://postgres:mypass@localhost:5432/postgres?sslmode=disable" \
+  force 0
+```
+```
+migrate \
+  -path internal/db/migrations \
+  -database "postgres://postgres:mypass@localhost:5432/postgres?sslmode=disable" \
+  drop -f
+```
+```
+migrate \
+  -path internal/db/migrations \
+  -database "postgres://postgres:mypass@localhost:5432/postgres?sslmode=disable&x-multi-statement=true" \
+  up
+```
+
 
 
 
