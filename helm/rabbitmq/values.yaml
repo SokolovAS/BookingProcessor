@@ -1,0 +1,21 @@
+# rabbitmq-values.yaml
+
+# Expose only the AMQP port via a ClusterIP service named "rabbitmq"
+service:
+  type: ClusterIP
+  ports:
+    amqp: 5672
+    # you can also expose the management port if you like:
+    # management: 15672
+
+# Make credentials static (instead of randomly generated)
+auth:
+  username: guest
+  password: guest
+  # you may want to set a stable Erlang cookie for clustering:
+  erlangCookie: my-secret-cookie
+
+# Disable HA mode unless you need clustering
+replicaCount: 1
+ha:
+  enabled: false

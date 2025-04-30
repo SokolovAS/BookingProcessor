@@ -1,32 +1,39 @@
 package main
 
 import (
+	"context"
 	"database/sql"
-	"github.com/SokolovAS/bookingprocessor/internal/Handlers"
-	repository "github.com/SokolovAS/bookingprocessor/internal/Repository"
-	services "github.com/SokolovAS/bookingprocessor/internal/Services"
+	"encoding/json"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
+	repository "github.com/SokolovAS/bookingprocessor/internal/Repository"
+	services "github.com/SokolovAS/bookingprocessor/internal/Services"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func main() {
-	log.Println("Starting BookingProcessor service...")
+type BookingMessage struct {
+	UserID    int    `json:"user_id"`
+	UserEmail string `json:"user_email"`
+	HotelData string `json:"hotel_data"`
+}
 
-	// Load the DATABASE_URL from the environment.
+func main() {
+	log.Println("Starting BookingProcessor (consumer) service...")
+
+	// ── Postgres setup ─────────────────────────────────────────
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is not set")
 	}
-
-	// Open connection to PostgreSQL.
 	pgConnection, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		log.Fatalf("Error connecting to database: %v", err)
@@ -35,7 +42,6 @@ func main() {
 
 	maxConn, _ := strconv.Atoi(os.Getenv("DB_MAX_CONNECTIONS"))
 	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
-
 	perPod := maxConn / maxPods
 	idle := perPod / 2
 
@@ -43,42 +49,104 @@ func main() {
 	pgConnection.SetMaxIdleConns(idle)
 	pgConnection.SetConnMaxLifetime(15 * time.Minute)
 
-	var requestsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+	// ── Prometheus metrics ────────────────────────────────────
+	requestsCounter := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "booking_processor_requests_total",
-		Help: "Total requests processed",
+		Help: "Total bookings processed from queue",
 	})
-
 	prometheus.MustRegister(requestsCounter)
 
 	userRepo := repository.NewUserRepository(pgConnection)
 	hotelRepo := repository.NewHotelRepository(pgConnection)
 	bookingRepo := repository.NewBookingRepo(pgConnection, userRepo, hotelRepo)
-	userService := services.NewUserService(userRepo)
 	BookingService := services.NewBookingService(bookingRepo)
-	graphQLHandler := Handlers.NewGraphQLHandler(userService)
-	bookingHandler := Handlers.NewBookingHandler(BookingService)
 
-	http.Handle("/graphql", graphQLHandler)
-	http.Handle("/metrics", promhttp.Handler())
+	// ── RabbitMQ setup ────────────────────────────────────────
+	amqpURL := os.Getenv("AMQP_URL")
+	if amqpURL == "" {
+		log.Fatal("AMQP_URL is not set")
+	}
+	queueName := os.Getenv("QUEUE_NAME")
+	if queueName == "" {
+		queueName = "booking_inserts"
+	}
 
-	http.HandleFunc("/insert", func(w http.ResponseWriter, r *http.Request) {
-		requestsCounter.Inc()
-		log.Println("Received /insert request")
+	conn, err := amqp.Dial(amqpURL)
+	if err != nil {
+		log.Fatalf("Failed to dial RabbitMQ: %v", err)
+	}
+	defer conn.Close()
 
-		bookingHandler.Inset(w, r)
-		log.Println("Response sent for /insert")
-	})
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Fatalf("Failed to open channel: %v", err)
+	}
+	defer ch.Close()
 
-	log.Println("Starting pprof goroutine...")
+	// ensure queue exists
+	_, err = ch.QueueDeclare(queueName, true, false, false, false, nil)
+	if err != nil {
+		log.Fatalf("QueueDeclare: %v", err)
+	}
+	// limit unack'd msgs to a small batch
+	if err := ch.Qos(50, 0, false); err != nil {
+		log.Fatalf("Qos: %v", err)
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		"",    // consumer tag
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		log.Fatalf("Consume: %v", err)
+	}
+
+	// ── HTTP & pprof ───────────────────────────────────────────
 	go func() {
-		log.Println("pprof server listening on :6060")
-		if err := http.ListenAndServe(":6060", nil); err != nil {
-			log.Fatalf("pprof server error: %v", err)
-		}
+		log.Println("pprof and metrics listening on :6060")
+		httpMux := http.NewServeMux()
+		httpMux.Handle("/metrics", promhttp.Handler())
+		log.Fatal(http.ListenAndServe(":6060", httpMux))
 	}()
 
-	log.Println("Server is running on port 8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatalf("Server error: %v", err)
-	}
+	// ── Graceful shutdown ──────────────────────────────────────
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// ── Consumer loop ──────────────────────────────────────────
+	go func() {
+		for d := range msgs {
+			var m BookingMessage
+			if err := json.Unmarshal(d.Body, &m); err != nil {
+				log.Printf("Invalid JSON, Nack(false,false): %v", err)
+				d.Nack(false, false) // drop
+				continue
+			}
+
+			err := BookingService.Register(m.UserEmail)
+			if err != nil {
+				log.Printf("DB insert failed, Nack(false,true): %v", err)
+				d.Nack(false, true) // requeue
+				continue
+			}
+
+			d.Ack(false)
+			requestsCounter.Inc()
+			log.Printf("ACKed booking for user/hotel=%d", m.UserID)
+		}
+		// msgs channel closed
+		cancel()
+	}()
+
+	log.Println("BookingProcessor consumer running, awaiting messages…")
+	<-ctx.Done()
+	log.Println("Shutdown complete")
 }
