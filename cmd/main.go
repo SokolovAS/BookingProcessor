@@ -60,6 +60,8 @@ func main() {
 	hotelRepo := repository.NewHotelRepository(pgConnection)
 	bookingRepo := repository.NewBookingRepo(pgConnection, userRepo, hotelRepo)
 	BookingService := services.NewBookingService(bookingRepo)
+	
+	// todo Need to move this somewhere to dataAPI service (witch I wont do) http.Handle("/graphql", graphQLHandler)
 
 	// ── RabbitMQ setup ────────────────────────────────────────
 	amqpURL := os.Getenv("AMQP_URL")
