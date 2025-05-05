@@ -26,6 +26,11 @@ type BookingMessage struct {
 	HotelData string `json:"hotel_data"`
 }
 
+const (
+	batchSize    = 50
+	batchTimeout = 200 * time.Millisecond
+)
+
 func main() {
 	log.Println("Starting BookingProcessor (consumer) service...")
 
@@ -43,10 +48,9 @@ func main() {
 	maxConn, _ := strconv.Atoi(os.Getenv("DB_MAX_CONNECTIONS"))
 	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
 	perPod := maxConn / maxPods
-	idle := perPod / 2
 
 	pgConnection.SetMaxOpenConns(perPod)
-	pgConnection.SetMaxIdleConns(idle)
+	pgConnection.SetMaxIdleConns(perPod / 2)
 	pgConnection.SetConnMaxLifetime(15 * time.Minute)
 
 	// ── Prometheus metrics ────────────────────────────────────
@@ -56,12 +60,11 @@ func main() {
 	})
 	prometheus.MustRegister(requestsCounter)
 
+	// ── Application services ──────────────────────────────────
 	userRepo := repository.NewUserRepository(pgConnection)
 	hotelRepo := repository.NewHotelRepository(pgConnection)
 	bookingRepo := repository.NewBookingRepo(pgConnection, userRepo, hotelRepo)
-	BookingService := services.NewBookingService(bookingRepo)
-	
-	// todo Need to move this somewhere to dataAPI service (witch I wont do) http.Handle("/graphql", graphQLHandler)
+	bookingService := services.NewBookingService(bookingRepo)
 
 	// ── RabbitMQ setup ────────────────────────────────────────
 	amqpURL := os.Getenv("AMQP_URL")
@@ -85,13 +88,10 @@ func main() {
 	}
 	defer ch.Close()
 
-	// ensure queue exists
-	_, err = ch.QueueDeclare(queueName, true, false, false, false, nil)
-	if err != nil {
+	if _, err := ch.QueueDeclare(queueName, true, false, false, false, nil); err != nil {
 		log.Fatalf("QueueDeclare: %v", err)
 	}
-	// limit unack'd msgs to a small batch
-	if err := ch.Qos(50, 0, false); err != nil {
+	if err := ch.Qos(batchSize, 0, false); err != nil {
 		log.Fatalf("Qos: %v", err)
 	}
 
@@ -111,9 +111,9 @@ func main() {
 	// ── HTTP & pprof ───────────────────────────────────────────
 	go func() {
 		log.Println("pprof and metrics listening on :6060")
-		httpMux := http.NewServeMux()
-		httpMux.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(":6060", httpMux))
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		log.Fatal(http.ListenAndServe(":6060", mux))
 	}()
 
 	// ── Graceful shutdown ──────────────────────────────────────
@@ -123,29 +123,84 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// ── Consumer loop ──────────────────────────────────────────
+	// ── Batched consumer loop ──────────────────────────────────
 	go func() {
-		for d := range msgs {
-			var m BookingMessage
-			if err := json.Unmarshal(d.Body, &m); err != nil {
-				log.Printf("Invalid JSON, Nack(false,false): %v", err)
-				d.Nack(false, false) // drop
-				continue
+		batch := make([]BookingMessage, 0, batchSize)
+		deliveries := make([]amqp.Delivery, 0, batchSize)
+		timer := time.NewTimer(batchTimeout)
+		defer timer.Stop()
+
+		processBatch := func() {
+			n := len(batch)
+			if n == 0 {
+				return
 			}
 
-			err := BookingService.Register(m.UserEmail)
-			if err != nil {
-				log.Printf("DB insert failed, Nack(false,true): %v", err)
-				d.Nack(false, true) // requeue
-				continue
+			// Try registering each message
+			for i, m := range batch {
+				if err := bookingService.Register(m.UserEmail); err != nil {
+					log.Printf("Register failed for index %d (email %s): %v", i, m.UserEmail, err)
+					// On failure, requeue entire batch
+					for _, d := range deliveries {
+						d.Nack(false, true)
+					}
+					batch = batch[:0]
+					deliveries = deliveries[:0]
+					return
+				}
 			}
 
-			d.Ack(false)
-			requestsCounter.Inc()
-			log.Printf("ACKed booking for user/hotel=%d", m.UserID)
+			// All succeeded: Ack all
+			for _, d := range deliveries {
+				d.Ack(false)
+			}
+			requestsCounter.Add(float64(n))
+			log.Printf("Processed and ACKed batch of %d messages", n)
+
+			batch = batch[:0]
+			deliveries = deliveries[:0]
 		}
-		// msgs channel closed
-		cancel()
+
+		for {
+			select {
+			case d, ok := <-msgs:
+				if !ok {
+					// channel closed: flush and exit
+					processBatch()
+					cancel()
+					return
+				}
+				var m BookingMessage
+				if err := json.Unmarshal(d.Body, &m); err != nil {
+					log.Printf("Invalid JSON, dropping: %v", err)
+					d.Nack(false, false)
+					continue
+				}
+				batch = append(batch, m)
+				deliveries = append(deliveries, d)
+
+				if len(batch) >= batchSize {
+					if !timer.Stop() {
+						<-timer.C
+					}
+					processBatch()
+					timer.Reset(batchTimeout)
+				}
+
+			case <-timer.C:
+				processBatch()
+				timer.Reset(batchTimeout)
+
+			case <-sigCh:
+				// On SIGINT/SIGTERM flush remaining and exit
+				processBatch()
+				cancel()
+				return
+
+			case <-ctx.Done():
+				return
+			}
+		}
 	}()
 
 	log.Println("BookingProcessor consumer running, awaiting messages…")

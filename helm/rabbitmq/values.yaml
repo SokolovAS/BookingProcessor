@@ -19,3 +19,9 @@ auth:
 replicaCount: 1
 ha:
   enabled: false
+
+resources:
+  requests:
+    memory: "1Gi"
+  limits:
+    memory: "2Gi"
