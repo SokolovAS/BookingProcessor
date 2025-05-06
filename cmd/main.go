@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,6 +32,114 @@ const (
 	batchTimeout = 200 * time.Millisecond
 )
 
+func runWorker(
+	ctx context.Context,
+	id int,
+	conn *amqp.Connection,
+	queueName string,
+	bookingService *services.BookingService,
+	requestsCounter prometheus.Counter,
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Printf("[worker %d] channel open: %v", id, err)
+		return
+	}
+	defer ch.Close()
+
+	if err := ch.Qos(batchSize, 0, false); err != nil {
+		log.Printf("[worker %d] Qos: %v", id, err)
+		return
+	}
+
+	msgs, err := ch.Consume(
+		queueName,
+		"",    // consumerTag
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		log.Printf("[worker %d] Consume: %v", id, err)
+		return
+	}
+
+	log.Printf("[worker %d] started", id)
+
+	batch := make([]BookingMessage, 0, batchSize)
+	deliveries := make([]amqp.Delivery, 0, batchSize)
+	timer := time.NewTimer(batchTimeout)
+	defer timer.Stop()
+
+	processBatch := func() {
+		n := len(batch)
+		if n == 0 {
+			return
+		}
+		// Register each message
+		for i, m := range batch {
+			if err := bookingService.Register(m.UserEmail); err != nil {
+				log.Printf("[worker %d] Register failed index=%d email=%s: %v", id, i, m.UserEmail, err)
+				for _, d := range deliveries {
+					d.Nack(false, true)
+				}
+				batch = batch[:0]
+				deliveries = deliveries[:0]
+				return
+			}
+		}
+		// Ack all on success
+		for _, d := range deliveries {
+			d.Ack(false)
+		}
+		requestsCounter.Add(float64(n))
+		log.Printf("[worker %d] processed batch of %d", id, n)
+		batch = batch[:0]
+		deliveries = deliveries[:0]
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			processBatch()
+			log.Printf("[worker %d] shutting down", id)
+			return
+
+		case d, ok := <-msgs:
+			if !ok {
+				processBatch()
+				log.Printf("[worker %d] msgs channel closed", id)
+				return
+			}
+			var m BookingMessage
+			if err := json.Unmarshal(d.Body, &m); err != nil {
+				log.Printf("[worker %d] invalid JSON, dropping: %v", id, err)
+				d.Nack(false, false)
+				continue
+			}
+			batch = append(batch, m)
+			deliveries = append(deliveries, d)
+
+			if len(batch) >= batchSize {
+				if !timer.Stop() {
+					<-timer.C
+				}
+				processBatch()
+				timer.Reset(batchTimeout)
+			}
+
+		case <-timer.C:
+			processBatch()
+			timer.Reset(batchTimeout)
+		}
+	}
+}
+
 func main() {
 	log.Println("Starting BookingProcessor (consumer) service...")
 
@@ -39,19 +148,22 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is not set")
 	}
-	pgConnection, err := sql.Open("pgx", dbURL)
+	db, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
-	defer pgConnection.Close()
+	defer db.Close()
 
 	maxConn, _ := strconv.Atoi(os.Getenv("DB_MAX_CONNECTIONS"))
 	maxPods, _ := strconv.Atoi(os.Getenv("MAX_PODS"))
 	perPod := maxConn / maxPods
+	if perPod < 1 {
+		perPod = 1
+	}
 
-	pgConnection.SetMaxOpenConns(perPod)
-	pgConnection.SetMaxIdleConns(perPod / 2)
-	pgConnection.SetConnMaxLifetime(15 * time.Minute)
+	db.SetMaxOpenConns(perPod)
+	db.SetMaxIdleConns(perPod / 2)
+	db.SetConnMaxLifetime(15 * time.Minute)
 
 	// ── Prometheus metrics ────────────────────────────────────
 	requestsCounter := prometheus.NewCounter(prometheus.CounterOpts{
@@ -61,9 +173,9 @@ func main() {
 	prometheus.MustRegister(requestsCounter)
 
 	// ── Application services ──────────────────────────────────
-	userRepo := repository.NewUserRepository(pgConnection)
-	hotelRepo := repository.NewHotelRepository(pgConnection)
-	bookingRepo := repository.NewBookingRepo(pgConnection, userRepo, hotelRepo)
+	userRepo := repository.NewUserRepository(db)
+	hotelRepo := repository.NewHotelRepository(db)
+	bookingRepo := repository.NewBookingRepo(db, userRepo, hotelRepo)
 	bookingService := services.NewBookingService(bookingRepo)
 
 	// ── RabbitMQ setup ────────────────────────────────────────
@@ -82,32 +194,6 @@ func main() {
 	}
 	defer conn.Close()
 
-	ch, err := conn.Channel()
-	if err != nil {
-		log.Fatalf("Failed to open channel: %v", err)
-	}
-	defer ch.Close()
-
-	if _, err := ch.QueueDeclare(queueName, true, false, false, false, nil); err != nil {
-		log.Fatalf("QueueDeclare: %v", err)
-	}
-	if err := ch.Qos(batchSize, 0, false); err != nil {
-		log.Fatalf("Qos: %v", err)
-	}
-
-	msgs, err := ch.Consume(
-		queueName,
-		"",    // consumer tag
-		false, // autoAck
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,   // args
-	)
-	if err != nil {
-		log.Fatalf("Consume: %v", err)
-	}
-
 	// ── HTTP & pprof ───────────────────────────────────────────
 	go func() {
 		log.Println("pprof and metrics listening on :6060")
@@ -118,92 +204,23 @@ func main() {
 
 	// ── Graceful shutdown ──────────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// ── Batched consumer loop ──────────────────────────────────
-	go func() {
-		batch := make([]BookingMessage, 0, batchSize)
-		deliveries := make([]amqp.Delivery, 0, batchSize)
-		timer := time.NewTimer(batchTimeout)
-		defer timer.Stop()
+	// ── Worker pool based on DB connections per pod ────────────
+	workerCount := perPod
+	log.Printf("Starting %d workers (perPod DB connections)", workerCount)
 
-		processBatch := func() {
-			n := len(batch)
-			if n == 0 {
-				return
-			}
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go runWorker(ctx, i, conn, queueName, bookingService, requestsCounter, &wg)
+	}
 
-			// Try registering each message
-			for i, m := range batch {
-				if err := bookingService.Register(m.UserEmail); err != nil {
-					log.Printf("Register failed for index %d (email %s): %v", i, m.UserEmail, err)
-					// On failure, requeue entire batch
-					for _, d := range deliveries {
-						d.Nack(false, true)
-					}
-					batch = batch[:0]
-					deliveries = deliveries[:0]
-					return
-				}
-			}
-
-			// All succeeded: Ack all
-			for _, d := range deliveries {
-				d.Ack(false)
-			}
-			requestsCounter.Add(float64(n))
-			log.Printf("Processed and ACKed batch of %d messages", n)
-
-			batch = batch[:0]
-			deliveries = deliveries[:0]
-		}
-
-		for {
-			select {
-			case d, ok := <-msgs:
-				if !ok {
-					// channel closed: flush and exit
-					processBatch()
-					cancel()
-					return
-				}
-				var m BookingMessage
-				if err := json.Unmarshal(d.Body, &m); err != nil {
-					log.Printf("Invalid JSON, dropping: %v", err)
-					d.Nack(false, false)
-					continue
-				}
-				batch = append(batch, m)
-				deliveries = append(deliveries, d)
-
-				if len(batch) >= batchSize {
-					if !timer.Stop() {
-						<-timer.C
-					}
-					processBatch()
-					timer.Reset(batchTimeout)
-				}
-
-			case <-timer.C:
-				processBatch()
-				timer.Reset(batchTimeout)
-
-			case <-sigCh:
-				// On SIGINT/SIGTERM flush remaining and exit
-				processBatch()
-				cancel()
-				return
-
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	log.Println("BookingProcessor consumer running, awaiting messages…")
-	<-ctx.Done()
-	log.Println("Shutdown complete")
+	// Wait for shutdown signal
+	<-sigCh
+	log.Println("Shutdown signal received; waiting for workers to finish…")
+	cancel()
+	wg.Wait()
+	log.Println("BookingProcessor shutdown complete")
 }
