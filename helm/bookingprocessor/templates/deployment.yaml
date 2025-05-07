@@ -9,6 +9,7 @@ spec:
       app: bookingprocessor
   template:
     metadata:
+
       labels:
         app: bookingprocessor
     spec:
