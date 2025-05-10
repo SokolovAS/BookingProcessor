@@ -9,6 +9,7 @@ spec:
       app: bookingprocessor
   template:
     metadata:
+
       labels:
         app: bookingprocessor
     spec:
@@ -18,6 +19,10 @@ spec:
           image: dn010590sas/bookingprocessor:latest
           imagePullPolicy: Always
           env:
+            - name: AMQP_URL
+              value: "amqp://guest:guest@rabbitmq:5672/"
+            - name: QUEUE_NAME
+              value: "booking_inserts"
             - name: DATABASE_URL
               value: "{{ .Values.env.DATABASE_URL }}"
             - name: DB_MAX_CONNECTIONS

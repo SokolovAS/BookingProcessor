@@ -139,6 +139,14 @@ migrate \
   -database "postgres://postgres:mypass@localhost:5432/postgres?sslmode=disable&x-multi-statement=true" \
   up
 ```
+# Install rabbitMQ
+```
+helm install rabbitmq \
+  bitnami/rabbitmq \
+  --namespace default \
+  --create-namespace \
+  --values helm/rabbitmq/values.yaml
+```
 
 
 
